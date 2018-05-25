@@ -137,16 +137,15 @@ class TwoLayerNet(object):
     #############################################################################
     delta = scores
     delta[np.arange(N), y] -= 1
+    delta /= N
     grads['W2'] = a1.T.dot(delta)
     grads['b2'] = delta.sum(0)
     delta = delta.dot(W2.T) * relu_prime(z1)
     grads['W1'] = X_dropout.T.dot(delta)
     grads['b1'] = delta.sum(0)
 
-    grads['W1'] = grads['W1']/N + (2 * reg * W1)
-    grads['b1'] = grads['b1']/N
-    grads['W2'] = grads['W2']/N + (2 * reg * W2)
-    grads['b2'] = grads['b2']/N
+    grads['W1'] += (2 * reg * W1)
+    grads['W2'] += (2 * reg * W2)
     #############################################################################
     #                              END OF YOUR CODE                             #
     #############################################################################
