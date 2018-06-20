@@ -270,11 +270,24 @@ class FullyConnectedNet(object):
         ############################################################################
         caches = []
         a = X*1
-        if self.use_batchnorm:
+        if self.use_batchnorm and self.use_dropout:
             for i in range(1, self.num_layers):
-                a, cache = affine_bn_relu_forward(a, self.params['W%d'%i], self.params['b%d'%i],
-                        self.params['gamma%d'%i], self.params['beta%d'%i], self.bn_params[i-1])
+                a, cache = affine_bn_relu_forward(a, self.params['W%d'%i],
+                                        self.params['b%d'%i], self.params['gamma%d'%i],
+                                        self.params['beta%d'%i], self.bn_params[i-1])
+                a, cache_d = dropout_forward(a, self.dropout_param)
+                caches.append(cache+cache_d)
+        elif self.use_batchnorm:
+            for i in range(1, self.num_layers):
+                a, cache = affine_bn_relu_forward(a, self.params['W%d'%i],
+                                        self.params['b%d'%i], self.params['gamma%d'%i],
+                                        self.params['beta%d'%i], self.bn_params[i-1])
                 caches.append(cache)
+        elif self.use_dropout:
+            for i in range(1, self.num_layers):
+                a, cache = affine_relu_forward(a, self.params['W%d'%i], self.params['b%d'%i])
+                a, cache_d = dropout_forward(a, self.dropout_param)
+                caches.append(cache+cache_d)
         else:
             for i in range(1, self.num_layers):
                 a, cache = affine_relu_forward(a, self.params['W%d'%i], self.params['b%d'%i])
@@ -307,10 +320,21 @@ class FullyConnectedNet(object):
         loss, dx = softmax_loss(scores, y)
         dx, grads['W%d'%(self.num_layers)], grads['b%d'%(self.num_layers)] = \
             affine_backward(dx, caches[-1])
-        if self.use_batchnorm:
+        if self.use_batchnorm and self.use_dropout:
+            for i in range(self.num_layers-1, 0, -1):
+                cache, cache_d = caches[i-1][:-2], caches[i-1][-2:]
+                dx = dropout_backward(dx, cache_d)
+                dx, grads['W%d'%i], grads['b%d'%i], grads['gamma%d'%i], grads['beta%d'%i] = \
+                        affine_bn_relu_backward(dx, cache)
+        elif self.use_batchnorm:
             for i in range(self.num_layers-1, 0, -1):
                 dx, grads['W%d'%i], grads['b%d'%i], grads['gamma%d'%i], grads['beta%d'%i] = \
-                    affine_bn_relu_backward(dx, caches[i-1])
+                        affine_bn_relu_backward(dx, caches[i-1])
+        elif self.use_dropout:
+            for i in range(self.num_layers-1, 0, -1):
+                cache, cache_d = caches[i-1][:-2], caches[i-1][-2:]
+                dx = dropout_backward(dx, cache_d)
+                dx, grads['W%d'%i], grads['b%d'%i] = affine_relu_backward(dx, cache)
         else:
             for i in range(self.num_layers-1, 0, -1):
                 dx, grads['W%d'%i], grads['b%d'%i] = affine_relu_backward(dx, caches[i-1])
