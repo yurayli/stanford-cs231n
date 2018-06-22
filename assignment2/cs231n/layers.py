@@ -234,10 +234,10 @@ def batchnorm_backward(dout, cache):
     dgamma = np.sum(dout * x_hat, 0)
     dbeta = np.sum(dout, 0)
     dx_hat = dout * gamma
-    dx_mu = dx_hat * to_norm
+    dx_mu_b = dx_hat * to_norm  # only one branch of dx_mu
     dvar = (dx_hat * x_mu).sum(0) * (-to_norm**3/2)
-    dmu = -dx_mu.sum(0) - 2*x_mu.sum(0)*dvar/N
-    dx = dx_mu + 2*x_mu*dvar/N + dmu/N
+    dmu = -dx_mu_b.sum(0) - 2*x_mu.sum(0)*dvar/N
+    dx = dx_mu_b + 2*x_mu*dvar/N + dmu/N
     ###########################################################################
     #                             END OF YOUR CODE                            #
     ###########################################################################
