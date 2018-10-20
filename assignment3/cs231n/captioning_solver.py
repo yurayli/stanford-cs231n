@@ -212,26 +212,25 @@ class CaptioningSolver(object):
                       split=split)
         captions, features, urls = minibatch
         if check_loss: loss, _ = self.model.loss(features, captions)
-        captions = decode_captions(captions, self.data['idx_to_word'])
-        N = num_samples
+        gt_captions = decode_captions(captions, self.data['idx_to_word'])
 
         # Compute word generations in batches
-        num_batches = N // batch_size
-        if N % batch_size != 0:
+        num_batches = num_samples // batch_size
+        if num_samples % batch_size != 0:
             num_batches += 1
-        total_score = 0
+        total_score = 0.0
         for i in range(num_batches):
             start = i * batch_size
             end = (i + 1) * batch_size
             sample_captions = self.model.sample(features[start:end])
             sample_captions = decode_captions(sample_captions, self.data['idx_to_word'])
-            for gt_caption, sample_caption in zip(captions, sample_captions):
+            for gt_caption, sample_caption in zip(gt_captions[start:end], sample_captions):
                 total_score += BLEU_score(gt_caption, sample_caption)
 
         if check_loss:
-            return loss, total_score / N
+            return loss, total_score / num_samples
 
-        return total_score / N
+        return total_score / num_samples
 
 
     def train(self):
@@ -254,6 +253,11 @@ class CaptioningSolver(object):
             epoch_end = (t + 1) % iterations_per_epoch == 0
             if epoch_end:
                 self.epoch += 1
+                # shuffle the data
+                msk = np.random.permutation(num_train)
+                self.data['train_captions'] = self.data['train_captions'][msk]
+                self.data['train_image_idxs'] = self.data['train_image_idxs'][msk]
+                # lr rate scheduling
                 if self.epoch % self.step_size == 0:
                     for k in self.optim_configs:
                         self.optim_configs[k]['learning_rate'] *= self.lr_decay
@@ -280,7 +284,6 @@ class CaptioningSolver(object):
                 if val_bleu > self.best_val_bleu:
                     self._save_checkpoint()
                     self.best_val_bleu = val_bleu
-                    self.best_params = {}
                     for k, v in self.model.params.items():
                         self.best_params[k] = v.copy()
 
