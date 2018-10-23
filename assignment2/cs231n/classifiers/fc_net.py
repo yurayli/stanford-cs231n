@@ -19,7 +19,10 @@ def affine_bn_relu_forward(x, w, b, gamma, beta, bn_param):
     - cache: Object to give to the backward pass
     """
     z, fc_cache = affine_forward(x, w, b)
-    z_bn, bn_cache = batchnorm_forward(z, gamma, beta, bn_param)
+    if 'mode' in bn_param.keys():
+        z_bn, bn_cache = batchnorm_forward(z, gamma, beta, bn_param)
+    else:
+        z_bn, bn_cache = layernorm_forward(z, gamma, beta, bn_param)
     out, relu_cache = relu_forward(z_bn)
     cache = (fc_cache, bn_cache, relu_cache)
     return out, cache
@@ -31,7 +34,11 @@ def affine_bn_relu_backward(dout, cache):
     """
     fc_cache, bn_cache, relu_cache = cache
     dz_bn = relu_backward(dout, relu_cache)
-    dz, dgamma, dbeta = batchnorm_backward_alt(dz_bn, bn_cache)
+    N, D = bn_cache[0].shape
+    if len(bn_cache[-1]) == D:
+        dz, dgamma, dbeta = batchnorm_backward_alt(dz_bn, bn_cache)
+    else:
+        dz, dgamma, dbeta = layernorm_backward(dz_bn, bn_cache)
     dx, dw, db = affine_backward(dz, fc_cache)
     return dx, dw, db, dgamma, dbeta
 
@@ -163,7 +170,7 @@ class FullyConnectedNet(object):
     """
 
     def __init__(self, hidden_dims, input_dim=3*32*32, num_classes=10,
-                 dropout=0, use_batchnorm=False, reg=0.0,
+                 dropout=0, normalization=None, reg=0.0,
                  weight_scale=1e-2, dtype=np.float32, seed=None):
         """
         Initialize a new FullyConnectedNet.
@@ -174,7 +181,8 @@ class FullyConnectedNet(object):
         - num_classes: An integer giving the number of classes to classify.
         - dropout: Scalar between 0 and 1 giving dropout strength. If dropout=0 then
           the network should not use dropout at all.
-        - use_batchnorm: Whether or not the network should use batch normalization.
+        - normalization: What type of normalization the network should use. Valid values
+          are "batchnorm", "layernorm", or None for no normalization (the default).
         - reg: Scalar giving L2 regularization strength.
         - weight_scale: Scalar giving the standard deviation for random
           initialization of the weights.
@@ -185,7 +193,7 @@ class FullyConnectedNet(object):
           will make the dropout layers deteriminstic so we can gradient check the
           model.
         """
-        self.use_batchnorm = use_batchnorm
+        self.normalization = normalization
         self.use_dropout = dropout > 0
         self.reg = reg
         self.num_layers = 1 + len(hidden_dims)
@@ -208,7 +216,7 @@ class FullyConnectedNet(object):
         for i in range(1, self.num_layers+1):
             self.params['b%d' %i] = np.zeros(dims[i])
             self.params['W%d' %i] = weight_scale * np.random.randn(dims[i-1], dims[i])
-            if self.use_batchnorm and i < self.num_layers:
+            if self.normalization and i < self.num_layers:
                 self.params['gamma%d' %i] = np.ones(dims[i])
                 self.params['beta%d' %i] = np.zeros(dims[i])
         ############################################################################
@@ -230,8 +238,10 @@ class FullyConnectedNet(object):
         # of the first batch normalization layer, self.bn_params[1] to the forward
         # pass of the second batch normalization layer, etc.
         self.bn_params = []
-        if self.use_batchnorm:
+        if self.normalization == 'batchnorm':
             self.bn_params = [{'mode': 'train'} for i in range(self.num_layers - 1)]
+        if self.normalization == 'layernorm':
+            self.bn_params = [{} for i in range(self.num_layers - 1)]
 
         # Cast all parameters to the correct datatype
         for k, v in self.params.items():
@@ -251,7 +261,7 @@ class FullyConnectedNet(object):
         # behave differently during training and testing.
         if self.use_dropout:
             self.dropout_param['mode'] = mode
-        if self.use_batchnorm:
+        if self.normalization == 'batchnorm':
             for bn_param in self.bn_params:
                 bn_param['mode'] = mode
 
@@ -270,14 +280,14 @@ class FullyConnectedNet(object):
         ############################################################################
         caches = []
         a = X*1
-        if self.use_batchnorm and self.use_dropout:
+        if self.normalization and self.use_dropout:
             for i in range(1, self.num_layers):
                 a, cache = affine_bn_relu_forward(a, self.params['W%d'%i],
                                         self.params['b%d'%i], self.params['gamma%d'%i],
                                         self.params['beta%d'%i], self.bn_params[i-1])
                 a, cache_d = dropout_forward(a, self.dropout_param)
                 caches.append(cache+cache_d)
-        elif self.use_batchnorm:
+        elif self.normalization:
             for i in range(1, self.num_layers):
                 a, cache = affine_bn_relu_forward(a, self.params['W%d'%i],
                                         self.params['b%d'%i], self.params['gamma%d'%i],
@@ -320,13 +330,13 @@ class FullyConnectedNet(object):
         loss, dx = softmax_loss(scores, y)
         dx, grads['W%d'%(self.num_layers)], grads['b%d'%(self.num_layers)] = \
             affine_backward(dx, caches[-1])
-        if self.use_batchnorm and self.use_dropout:
+        if self.normalization and self.use_dropout:
             for i in range(self.num_layers-1, 0, -1):
                 cache, cache_d = caches[i-1][:-2], caches[i-1][-2:]
                 dx = dropout_backward(dx, cache_d)
                 dx, grads['W%d'%i], grads['b%d'%i], grads['gamma%d'%i], grads['beta%d'%i] = \
                         affine_bn_relu_backward(dx, cache)
-        elif self.use_batchnorm:
+        elif self.normalization:
             for i in range(self.num_layers-1, 0, -1):
                 dx, grads['W%d'%i], grads['b%d'%i], grads['gamma%d'%i], grads['beta%d'%i] = \
                         affine_bn_relu_backward(dx, caches[i-1])

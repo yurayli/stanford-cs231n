@@ -281,6 +281,94 @@ def batchnorm_backward_alt(dout, cache):
     return dx, dgamma, dbeta
 
 
+def layernorm_forward(x, gamma, beta, ln_param):
+    """
+    Forward pass for layer normalization.
+
+    During both training and test-time, the incoming data is normalized per data-point,
+    before being scaled by gamma and beta parameters identical to that of batch normalization.
+
+    Note that in contrast to batch normalization, the behavior during train and test-time for
+    layer normalization are identical, and we do not need to keep track of running averages
+    of any sort.
+
+    Input:
+    - x: Data of shape (N, D)
+    - gamma: Scale parameter of shape (D,)
+    - beta: Shift paremeter of shape (D,)
+    - ln_param: Dictionary with the following keys:
+        - eps: Constant for numeric stability
+
+    Returns a tuple of:
+    - out: of shape (N, D)
+    - cache: A tuple of values needed in the backward pass
+    """
+    N, D = x.shape
+    eps = ln_param.get('eps', 1e-5)
+
+    out, cache = None, None
+    ###########################################################################
+    # TODO: Implement the training-time forward pass for layer norm.          #
+    # Normalize the incoming data, and scale and  shift the normalized data   #
+    #  using gamma and beta.                                                  #
+    # HINT: this can be done by slightly modifying your training-time         #
+    # implementation of  batch normalization, and inserting a line or two of  #
+    # well-placed code. In particular, can you think of any matrix            #
+    # transformations you could perform, that would enable you to copy over   #
+    # the batch norm code and leave it almost unchanged?                      #
+    ###########################################################################
+    layer_mean, layer_var = np.mean(x, 1), np.var(x, 1)
+    to_norm = 1 / np.sqrt(layer_var + eps)  # shape (N,)
+    x_mu = x - layer_mean[:,None]  # shape (N, D)
+    x_hat = x_mu * to_norm[:,None]
+    out = gamma * x_hat + beta
+    cache = (x_hat, gamma, x_mu, to_norm)
+    ###########################################################################
+    #                             END OF YOUR CODE                            #
+    ###########################################################################
+    return out, cache
+
+
+def layernorm_backward(dout, cache):
+    """
+    Backward pass for layer normalization.
+
+    For this implementation, you can heavily rely on the work you've done already
+    for batch normalization.
+
+    Inputs:
+    - dout: Upstream derivatives, of shape (N, D)
+    - cache: Variable of intermediates from layernorm_forward.
+
+    Returns a tuple of:
+    - dx: Gradient with respect to inputs x, of shape (N, D)
+    - dgamma: Gradient with respect to scale parameter gamma, of shape (D,)
+    - dbeta: Gradient with respect to shift parameter beta, of shape (D,)
+    """
+    N, D = dout.shape
+    x_hat, gamma, x_mu, to_norm = cache
+
+    dx, dgamma, dbeta = None, None, None
+    ###########################################################################
+    # TODO: Implement the backward pass for layer norm.                       #
+    #                                                                         #
+    # HINT: this can be done by slightly modifying your training-time         #
+    # implementation of batch normalization. The hints to the forward pass    #
+    # still apply!                                                            #
+    ###########################################################################
+    dgamma = np.sum(dout * x_hat, 0)
+    dbeta = np.sum(dout, 0)
+    dx_hat = dout * gamma
+    dx_mu_b = dx_hat * to_norm[:,None]  # only one branch of dx_mu
+    dvar = (dx_hat * x_mu).sum(1) * (-to_norm**3/2)
+    dmu = -dx_mu_b.sum(1) - 2*x_mu.sum(1)*dvar/D
+    dx = dx_mu_b + 2*x_mu*dvar[:,None]/D + dmu[:,None]/D
+    ###########################################################################
+    #                             END OF YOUR CODE                            #
+    ###########################################################################
+    return dx, dgamma, dbeta
+
+
 def dropout_forward(x, dropout_param):
     """
     Performs the forward pass for (inverted) dropout.
